@@ -52,7 +52,7 @@ public class BerBoolean implements Serializable {
         int codeLength = 1;
 
         if (value) {
-            os.write(0xff);
+            os.write(0x01);
         }
         else {
             os.write(0);
