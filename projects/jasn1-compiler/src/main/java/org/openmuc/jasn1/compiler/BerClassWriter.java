@@ -3,48 +3,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 package org.openmuc.jasn1.compiler;
 
+import org.openmuc.jasn1.ber.BerTag;
+import org.openmuc.jasn1.ber.types.BerObjectIdentifier;
+import org.openmuc.jasn1.compiler.model.*;
+import org.openmuc.jasn1.compiler.model.AsnModule.TagDefault;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
-
-import org.openmuc.jasn1.ber.BerTag;
-import org.openmuc.jasn1.ber.types.BerObjectIdentifier;
-import org.openmuc.jasn1.compiler.model.AsnAny;
-import org.openmuc.jasn1.compiler.model.AsnBitString;
-import org.openmuc.jasn1.compiler.model.AsnBoolean;
-import org.openmuc.jasn1.compiler.model.AsnCharacterString;
-import org.openmuc.jasn1.compiler.model.AsnChoice;
-import org.openmuc.jasn1.compiler.model.AsnClassNumber;
-import org.openmuc.jasn1.compiler.model.AsnConstructedType;
-import org.openmuc.jasn1.compiler.model.AsnDefinedType;
-import org.openmuc.jasn1.compiler.model.AsnElementType;
-import org.openmuc.jasn1.compiler.model.AsnEmbeddedPdv;
-import org.openmuc.jasn1.compiler.model.AsnEnum;
-import org.openmuc.jasn1.compiler.model.AsnInformationObjectClass;
-import org.openmuc.jasn1.compiler.model.AsnInteger;
-import org.openmuc.jasn1.compiler.model.AsnModule;
-import org.openmuc.jasn1.compiler.model.AsnModule.TagDefault;
-import org.openmuc.jasn1.compiler.model.AsnNull;
-import org.openmuc.jasn1.compiler.model.AsnObjectIdentifier;
-import org.openmuc.jasn1.compiler.model.AsnOctetString;
-import org.openmuc.jasn1.compiler.model.AsnParameter;
-import org.openmuc.jasn1.compiler.model.AsnReal;
-import org.openmuc.jasn1.compiler.model.AsnSequenceOf;
-import org.openmuc.jasn1.compiler.model.AsnSequenceSet;
-import org.openmuc.jasn1.compiler.model.AsnTag;
-import org.openmuc.jasn1.compiler.model.AsnTaggedType;
-import org.openmuc.jasn1.compiler.model.AsnType;
-import org.openmuc.jasn1.compiler.model.AsnUniversalType;
-import org.openmuc.jasn1.compiler.model.AsnValueAssignment;
-import org.openmuc.jasn1.compiler.model.SymbolsFromModule;
+import java.util.*;
 
 public class BerClassWriter {
 
@@ -1552,7 +1520,11 @@ public class BerClassWriter {
             write("totalLength = length.val;\n");
         }
 
-        write("while (subCodeLength < totalLength) {");
+        write("while (subCodeLength < totalLength || totalLength == -1) {");
+        write("if (AsnUtils.detectAndConsumeEnd(is, length.val)) {");
+        write("break;");
+        write("}");
+
         write(classNameOfSequenceOfElement + " element = new " + classNameOfSequenceOfElement + "();");
 
         String explicitEncoding = getExplicitDecodingParameter(componentType);
@@ -1586,7 +1558,7 @@ public class BerClassWriter {
         }
         write("seqOf.add(element);");
         write("}");
-        write("if (subCodeLength != totalLength) {");
+        write("if (subCodeLength != totalLength && totalLength != -1) {");
         write("throw new IOException(\"Decoded SequenceOf or SetOf has wrong length. Expected \" + totalLength + \" but has \" + subCodeLength);\n");
         write("}");
         write("codeLength += subCodeLength;\n");
@@ -1880,7 +1852,10 @@ public class BerClassWriter {
             writeSetDecodeIndefiniteLenghtPart(componentTypes);
         }
 
-        write("while (subCodeLength < totalLength) {");
+        write("while (subCodeLength < totalLength || totalLength == -1) {");
+        write("if (AsnUtils.detectAndConsumeEnd(is, totalLength)) {");
+        write("break;");
+        write("}");
         write("subCodeLength += berTag.decode(is);");
 
         for (int j = 0; j < componentTypes.size(); j++) {
@@ -1903,12 +1878,15 @@ public class BerClassWriter {
                 }
                 write(elseString + "if (berTag.equals(" + getBerTagParametersString(componentTag) + ")) {");
 
-                write("subCodeLength += new BerLength().decode(is);");
+                write("BerLength length2 = new BerLength().decode(is);");
+                write("subCodeLength += length2;");
                 explicitEncoding = ", null";
 
                 write(getName(componentType) + " = new " + getClassNameOfComponent(componentType) + "();");
 
                 write("subCodeLength += " + getName(componentType) + ".decode(is" + explicitEncoding + ");");
+
+                write("AsnUtils.detectAndConsumeEnd(is, length2.val);");
 
                 write("}");
 
@@ -1923,7 +1901,8 @@ public class BerClassWriter {
                         write(elseString + "if (berTag.equals(" + getBerTagParametersString(componentTag) + ")) {");
                     }
                     if (isExplicit(componentTag)) {
-                        write("subCodeLength += new BerLength().decode(is);");
+                        write("BerLength length3 = new BerLength().decode(is);");
+                        write("subCodeLength += length3;");
                         explicitEncoding = ", true";
                     }
                 }
@@ -1940,6 +1919,12 @@ public class BerClassWriter {
 
                 write("subCodeLength += " + getName(componentType) + ".decode(is" + explicitEncoding + ");");
 
+                if (componentTag != null) {
+                    if (isExplicit(componentTag)) {
+                        write("AsnUtils.detectAndConsumeEnd(is, length3.val);");
+                    }
+                }
+
                 write("}");
 
             }
@@ -1948,7 +1933,7 @@ public class BerClassWriter {
 
         write("}");
 
-        write("if (subCodeLength != totalLength) {");
+        write("if (subCodeLength != totalLength && totalLength != -1) {");
         write("throw new IOException(\"Length of set does not match length tag, length tag: \" + totalLength + \", actual set length: \" + subCodeLength);\n");
         write("}");
         write("codeLength += subCodeLength;\n");
