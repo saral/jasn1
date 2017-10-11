@@ -14,6 +14,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 
+@SuppressWarnings({"Duplicates", "StringConcatenationInLoop"})
 public class BerClassWriter {
 
     private static Tag stdSeqTag = new Tag();
@@ -1241,6 +1242,10 @@ public class BerClassWriter {
 
                 write("codeLength += " + getName(componentType) + ".decode(is" + explicitEncoding + ");");
 
+                if (componentTag.type == TagType.EXPLICIT) {
+                    write("AsnUtils.detectAndConsumeEnd(is, -1);");
+                }
+
                 write("return codeLength;");
 
                 write("}\n");
@@ -1336,6 +1341,9 @@ public class BerClassWriter {
             write("if (totalLength == 0) {");
             write("return codeLength;");
             write("}");
+            write("if (totalLength == -1 && AsnUtils.detectAndConsumeEnd(is, totalLength)) {");
+            write("return codeLength;");
+            write("}");
         }
 
         write("subCodeLength += berTag.decode(is);");
@@ -1360,6 +1368,10 @@ public class BerClassWriter {
                 if (lastNoneOptionalFieldIndex <= j) {
                     write("if (subCodeLength == totalLength) {");
                     write("return codeLength;");
+                    write("}");
+
+                    write("if (totalLength == -1 && AsnUtils.detectAndConsumeEnd(is, length.val)) {");
+                    write("return codeLength + subCodeLength;");
                     write("}");
                 }
                 if (j != (componentTypes.size() - 1)) {
@@ -1448,6 +1460,10 @@ public class BerClassWriter {
                     if (lastNoneOptionalFieldIndex <= j) {
                         write("if (subCodeLength == totalLength) {");
                         write("return codeLength;");
+                        write("}");
+
+                        write("if (totalLength == -1 && AsnUtils.detectAndConsumeEnd(is, length.val)) {");
+                        write("return codeLength + subCodeLength;");
                         write("}");
                     }
                     if (j != (componentTypes.size() - 1)) {
@@ -1878,8 +1894,9 @@ public class BerClassWriter {
                 }
                 write(elseString + "if (berTag.equals(" + getBerTagParametersString(componentTag) + ")) {");
 
-                write("BerLength length2 = new BerLength().decode(is);");
-                write("subCodeLength += length2;");
+                write("BerLength length2 = new BerLength();");
+                write("length2.decode(is);");
+                write("subCodeLength += length2.val;");
                 explicitEncoding = ", null";
 
                 write(getName(componentType) + " = new " + getClassNameOfComponent(componentType) + "();");
@@ -1901,8 +1918,9 @@ public class BerClassWriter {
                         write(elseString + "if (berTag.equals(" + getBerTagParametersString(componentTag) + ")) {");
                     }
                     if (isExplicit(componentTag)) {
-                        write("BerLength length3 = new BerLength().decode(is);");
-                        write("subCodeLength += length3;");
+                        write("BerLength length3 = new BerLength();");
+                        write("length3.decode(is);");
+                        write("subCodeLength += length3.val;");
                         explicitEncoding = ", true";
                     }
                 }
